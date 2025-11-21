@@ -1,5 +1,8 @@
 import os
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -10,8 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#=%y$mfy5r+=egg-n6jimn7@4*dal0*736l%!*6_hyjal(_ces'
-
+SECRET_KEY = str(os.getenv('SECRET_KEY'))
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
@@ -117,11 +119,16 @@ MEDIA_ROOT = os.path.join(BASE_DIR,'image')
 
 # email
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_HOST_USER = 'proncode@gmail.com'
-EMAIL_HOST_PASSWORD = '12345'
-EMAIL_PORT = '587'
+EMAIL_HOST = 'smtp.gmail.com'  
+EMAIL_HOST_USER =  str(os.getenv('EMAIL_HOST_USER'))
+EMAIL_HOST_PASSWORD = str(os.getenv('EMAIL_HOST_PASSWORD')) 
+EMAIL_PORT = 587  
 EMAIL_USE_TLS = True
+
+# paystack conf
+PAYSTACK_SECRETE_KEY = str(os.getenv('PAYSTACK_SECRETE_KEY')) 
+PAYSTACK_PUBLIC_KEY = str(os.getenv('PAYSTACK_PUBLIC_KEY')) 
+
 
 
 # Default primary key field type
