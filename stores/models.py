@@ -3,6 +3,7 @@ import uuid
 import secrets
 
 from users.models import Profile
+from . paystack import Paystack
 
 # category
 class Category(models.Model):
@@ -131,4 +132,14 @@ class Order(models.Model):
         return self.amount * 100
 
     # verify payment
+    def verify_payment(self):
+        paystack = Paystack()
+        status, result = paystack.verify_payment(self.ref)
+        if status and result['status'] == "success":
+            if result['amount']/100 == self.amount:
+                self.payment_completed = True
+                self.order_status = 'completed'
+                self.save()
+                return result
+        return status, result
 
