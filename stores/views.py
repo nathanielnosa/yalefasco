@@ -1,3 +1,4 @@
+from django.urls import reverse
 from rest_framework import serializers,status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,6 +8,9 @@ from .serializers import *
 
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.conf import settings
+
+import requests
 
 # :::: CATEGORY CRUD :::: #
 # :::: CATEGORY CRUD :::: #
@@ -230,9 +234,6 @@ class AddToCartView(APIView):
                     cart.save()
                     return Response({"Message": "Product added to cart successfully"}, status=status.HTTP_201_CREATED)
 
-
-                    
-
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -240,18 +241,171 @@ class AddToCartView(APIView):
 # :::: END OF  ADD TO CART :::: #
 
 
+# :::: MY CART :::: #
+# :::: MY CART :::: #
+class MyCartView(APIView):
+    def get(self,request):
+        try:
+            cart_id = request.session.get("cart_id",None)
+            if cart_id:
+                cart = get_object_or_404(Cart, id=cart_id)
+                # # assign cart to a user
+                if request.user.is_authenticated and hasattr(request.user, 'profile'):
+                    cart.profile = request.user.profile
+                    cart.save()
+                return Response({"Message": f"{cart.profile} owns this cart"},status=status.HTTP_200_OK)
+            
+            return Response({"Message": f"This cart is not found"},status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# :::: END OF  MY CART :::: #
+# :::: END OF  MY CART :::: #
+
+
+# :::: MANAGE CART :::: #
+# :::: MANAGE CART :::: #
+class ManageCartView(APIView):
+    def post(self,request,id):
+        action = request.data.get("action",None)
+        try:
+            cart_obj = get_object_or_404(CartProduct, id=id)
+            cart = cart_obj.cart
+            price = cart_obj.product.discount_price if cart_obj.product.discount_price else cart_obj.product.price
+
+            if action == "inc":
+                cart_obj.quantity += 1
+                cart_obj.subtotal += price
+                cart_obj.save()
+                cart.total+=price
+                cart.save()
+                return Response({"Message": "Cart Product increase successfully"}, status=status.HTTP_200_OK)
+            if action == "dec":
+                cart_obj.quantity -= 1
+                cart_obj.subtotal -= price
+                cart_obj.save()
+                cart.total-=price
+                cart.save()
+                if cart_obj.quantity <=0:
+                    cart_obj.delete()                
+                return Response({"Message": "Cart Product decrease successfully"}, status=status.HTTP_200_OK)
+            if action == "rmv":
+                cart.total -= price
+                cart.save()
+                cart_obj.delete()
+                return Response({"Message": "Cart Product removed successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# :::: END OF  MANAGE CART :::: #
+# :::: END OF  MANAGE CART :::: #
 
 
 
+# :::: CHECKOUT :::: #
+# :::: CHECKOUT :::: #
+class CheckoutView(APIView):
+    def post(self,request):
+        try:
+            cart_id = request.session.get("cart_id",None)
+            if not cart_id:
+                return Response({"Message": "No cart found"}, status=status.HTTP_400_BAD_REQUEST)
+            cart = get_object_or_404(Cart, id=cart_id)
+            serializers = CheckoutSerializer(data=request.data)
+            if serializers.is_valid():
+                order = serializers.save(
+                    cart=cart,
+                    amount=cart.total,
+                    subtotal=cart.total,
+                    order_status = 'pending'
+                )
+                del request.session['cart_id']
+                if order.payment_method == 'paystack':
+                    # integrate paystack payment gateway here
+                    payment_url = reverse("payment",args=[order.id])
+                    return Response({"payment_url": payment_url}, status=status.HTTP_201_CREATED)
+                return Response({"Message": "Order placed successfully", "order_id": order.id}, status=status.HTTP_201_CREATED)
+            
+                # elif order.payment_method == 'paypal':
+                #     # integrate paypal payment gateway here
+                #     pass
+                # elif order.payment_method == 'transfer':
+                #     # provide bank transfer details here
+                #     pass
+            return Response({"Message": "Payment Cant be verified"}, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# :::: END OF  CHECKOUT :::: #
+# :::: END OF  CHECKOUT :::: #
 
 
+# :::: CHECKOUT :::: #
+# :::: CHECKOUT :::: #
+class PaymentView(APIView):
+    def get(self,request,id):
+        try:
+            order = get_object_or_404(Order, id=id)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        url = f"https://api.paystack.co/transaction/initialize"
+        headers ={"Authorization": f"Bearer {settings.PAYSTACK_SECRETE_KEY}"}
+        data = {
+            "email": order.email,
+            "amount": order.amount * 100,
+            "reference": order.ref,
+        }
+        response = requests.post(url,headers=headers,data=data)
+        response_data= response.json()
+        if response_data['status']:
+            paystack_url = response_data['data']
+            return Response(
+                {
+                    'order':order.id,
+                    'total':order.amount,
+                    'paystack_public_key':settings.PAYSTACK_PUBLIC_KEY,
+                    'paystack_url': paystack_url
+                }
+            )
+        else:
+            return Response({"Message": "Payment initialization failed"}, status=status.HTTP_400_BAD_REQUEST)
+
+# :::: END OF  CHECKOUT :::: #
+# :::: END OF  CHECKOUT :::: #
+
+# :::: VERIFY PAYMENT :::: #
+# :::: VERIFY PAYMENT :::: #
+class VerifyPaymentView(APIView):
+    def get(self,request,ref):
+        try:
+            order = get_object_or_404(Order, ref=ref)
+            url = f"https://api.paystack.co/transaction/verify/{ref}"
+            headers ={
+                "Authorization": f"Bearer {settings.PAYSTACK_SECRETE_KEY}",
+                "Content-Type": "application/json",
+            }
+            response = requests.get(url, headers=headers)
+            response_data = response.json()
+
+            if response_data['status']:
+                if response_data['data']['status'] == 'success':
+                    order.payment_completed = True
+                    order.order_status = 'completed'
+                    order.save()
+                    return Response({"Message": "Payment verified successfully"}, status=status.HTTP_200_OK)
+                else:
+                    order.payment_completed = False
+                    order.order_status = 'failed'
+                    order.save()
+                    return Response({"Message": "Payment verification failed"}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"Message": "Payment verification failed"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
-
-# :::: PRODUCTS CRUD :::: #
-# :::: PRODUCTS CRUD :::: #
-
-
-# :::: END OF  PRODUCTS CRUD :::: #
-# :::: END OF  PRODUCTS CRUD :::: #
+# :::: END OF  VERIFY PAYMENT :::: #
+# :::: END OF  VERIFY PAYMENT :::: #

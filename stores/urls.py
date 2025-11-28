@@ -14,5 +14,14 @@ urlpatterns = [
     path('product/<int:id>/', views.ProductDetailView.as_view()),
     # add to cart
     path('addtocart/<int:id>/', views.AddToCartView.as_view()),
-
+    # users cart
+    path('mycart/', views.MyCartView.as_view()),
+    # manage cart
+    path('managecart/<int:id>/', views.ManageCartView.as_view()),
+    # checkout
+    path('checkout/', views.CheckoutView.as_view()),
+    # payment
+    path('payment/<int:id>/', views.PaymentView.as_view(),name='payment'),
+    # verify
+    path('<str:ref>/', views.VerifyPaymentView.as_view()),
 ]
